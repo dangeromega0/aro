@@ -1,124 +1,127 @@
-#include <BleGamepad.h>      // Biblioteca para gamepad BLE
-#include <ESP32Encoder.h>    // Biblioteca para encoders no ESP32
+#include <BleGamepad.h>
+#include <Keypad.h>
+#include <ESP32Encoder.h>
 
-BleGamepad bleGamepad("ESP32 Gamepad", "xAI", 100);
+// Configurações do gamepad
+const char* gamepadName = "Aro Audi";
+const char* gamepadManufacturer = "breeze";
+const uint8_t gamepadBatteryLevel = 100;
 
-// Instâncias dos encoders
-ESP32Encoder encoder1;
-ESP32Encoder encoder2;
-
-// Estrutura para os botões
-struct Botao {
-  uint8_t pinoRow;
-  uint8_t pinoCol;
-  uint8_t id;
+// Configurações da matriz de botões
+const uint8_t ROWS = 6;
+const uint8_t COLS = 2;
+uint8_t rowPins[ROWS] = {33, 32, 27, 26, 25, 13};
+uint8_t colPins[COLS] = {22, 23};
+uint8_t keymap[ROWS][COLS] = {
+  {1, 2}, {3, 4}, {5, 6}, {17, 18}, {9, 10}, {11, 12}
 };
 
-// Definição dos botões
-Botao botoes[] = {
-  {33, 22, 1}, {33, 23, 2}, {32, 22, 3}, {32, 23, 4},
-  {27, 22, 5}, {27, 23, 6}, {26, 22, 7}, {26, 23, 8},
-  {25, 22, 9}, {25, 23, 10}, {13, 22, 11}, {13, 23, 12},
-  {4, 22, 13}, {4, 23, 14}
-};
+// Pinos dos botões independentes
+const uint8_t BUTTON_13_OUTPUT_PIN = 4;
+const uint8_t BUTTON_13_INPUT_PIN = 5;
+const uint8_t BUTTON_14_OUTPUT_PIN = 14;
+const uint8_t BUTTON_14_INPUT_PIN = 15;
 
-const uint8_t NUM_BOTOES = sizeof(botoes) / sizeof(botoes[0]);
-const uint8_t pinosRows[] = {33, 32, 27, 26, 25, 13, 4};
-const uint8_t pinosCols[] = {22, 23};
-const uint8_t NUM_ROWS = sizeof(pinosRows) / sizeof(pinosRows[0]);
-const uint8_t NUM_COLS = sizeof(pinosCols) / sizeof(pinosCols[0]);
+// Configurações dos encoders
+const uint8_t MAXENC = 2;
+uint8_t encoderUppPin[MAXENC] = {18, 19};
+uint8_t encoderDwnPin[MAXENC] = {17, 21};
+uint8_t encoderUppButton[MAXENC] = {15, 7}; // Mapeamento dos botões dos encoders
+uint8_t encoderDwnButton[MAXENC] = {16, 8};
+ESP32Encoder encoder[MAXENC];
+unsigned long holdoff[MAXENC] = {0, 0};
+int32_t prevCount[MAXENC] = {0, 0};
+const unsigned long HOLDOFFTIME = 150;
 
-bool estadosBotoes[NUM_BOTOES] = {false};
-long ultimoEncoder1Pos = 0;
-long ultimoEncoder2Pos = 0;
+// Declaração das instâncias
+Keypad customKeypad = Keypad(makeKeymap(keymap), rowPins, colPins, ROWS, COLS);
+BleGamepad bleGamepad(gamepadName, gamepadManufacturer, gamepadBatteryLevel);
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  setCpuFrequencyMhz(80);
+  
+  
 
-  // Configuração dos pinos da matriz
-  for (uint8_t i = 0; i < NUM_ROWS; i++) {
-    pinMode(pinosRows[i], OUTPUT);
-    digitalWrite(pinosRows[i], HIGH);
+  for (uint8_t i = 0; i < ROWS; i++) {
+    pinMode(rowPins[i], OUTPUT);
+    digitalWrite(rowPins[i], HIGH);
   }
-  for (uint8_t i = 0; i < NUM_COLS; i++) {
-    pinMode(pinosCols[i], INPUT_PULLUP);
+  for (uint8_t i = 0; i < COLS; i++) {
+    pinMode(colPins[i], INPUT_PULLUP);
   }
 
-  // Configuração dos encoders
-  pinMode(18, INPUT_PULLUP);
-  pinMode(17, INPUT_PULLUP);
-  pinMode(21, INPUT_PULLUP);
-  pinMode(19, INPUT_PULLUP);
-  encoder1.attachFullQuad(18, 17);
-  encoder2.attachFullQuad(21, 19);
-  encoder1.clearCount();
-  encoder2.clearCount();
+  pinMode(BUTTON_13_OUTPUT_PIN, OUTPUT);
+  digitalWrite(BUTTON_13_OUTPUT_PIN, LOW);
+  pinMode(BUTTON_13_INPUT_PIN, INPUT_PULLUP);
 
+  pinMode(BUTTON_14_OUTPUT_PIN, OUTPUT);
+  digitalWrite(BUTTON_14_OUTPUT_PIN, LOW);
+  pinMode(BUTTON_14_INPUT_PIN, INPUT_PULLUP);
+
+  for (uint8_t i = 0; i < MAXENC; i++) {
+    encoder[i].attachSingleEdge(encoderDwnPin[i], encoderUppPin[i]);
+    encoder[i].clearCount();
+  }
+
+  customKeypad.addEventListener(keypadEvent);
+  customKeypad.setHoldTime(1);
+  customKeypad.setDebounceTime(50);
   bleGamepad.begin();
   Serial.println("BLE Gamepad iniciado!");
 }
 
 void loop() {
   if (bleGamepad.isConnected()) {
-    // Varredura dos botões
-    for (uint8_t r = 0; r < NUM_ROWS; r++) {
-      digitalWrite(pinosRows[r], LOW);
-      delayMicroseconds(10);
+    customKeypad.getKey();
 
-      for (uint8_t c = 0; c < NUM_COLS; c++) {
-        bool pressionado = (digitalRead(pinosCols[c]) == LOW);
-        
-        // Debug bruto da leitura
-        if (pressionado) {
-          Serial.printf("Detectado - Linha: %d, Coluna: %d\n", pinosRows[r], pinosCols[c]);
-        }
+    bool button13Pressed = digitalRead(BUTTON_13_INPUT_PIN) == HIGH;
+    bool button14Pressed = digitalRead(BUTTON_14_INPUT_PIN) == HIGH;
 
-        for (uint8_t i = 0; i < NUM_BOTOES; i++) {
-          if (botoes[i].pinoRow == pinosRows[r] && botoes[i].pinoCol == pinosCols[c]) {
-            bool leitura = pressionado;
-            if (botoes[i].id == 13 || botoes[i].id == 14) {
-              leitura = pressionado;  // Removida inversão dos paddles
-            }
+    if (button13Pressed) {
+      bleGamepad.press(13);
+    } else {
+      bleGamepad.release(13);
+    }
+    if (button14Pressed) {
+      bleGamepad.press(14);
+    } else {
+      bleGamepad.release(14);
+    }
 
-            if (leitura != estadosBotoes[i]) {
-              estadosBotoes[i] = leitura;
-              if (leitura) {
-                bleGamepad.press(botoes[i].id);
-                Serial.printf("Botão %d pressionado (Linha: %d, Coluna: %d)\n", 
-                             botoes[i].id, pinosRows[r], pinosCols[c]);
-              } else {
-                bleGamepad.release(botoes[i].id);
-                Serial.printf("Botão %d solto (Linha: %d, Coluna: %d)\n", 
-                             botoes[i].id, pinosRows[r], pinosCols[c]);
-              }
-            }
+    unsigned long now = millis();
+    for (uint8_t i = 0; i < MAXENC; i++) {
+      int32_t count = encoder[i].getCount();
+      if (count != prevCount[i]) {
+        if (!holdoff[i]) {
+          if (count > prevCount[i]) {
+            bleGamepad.press(encoderUppButton[i]);
+            delay(50);
+            bleGamepad.release(encoderUppButton[i]);
+          } else if (count < prevCount[i]) {
+            bleGamepad.press(encoderDwnButton[i]);
+            delay(50);
+            bleGamepad.release(encoderDwnButton[i]);
           }
+          holdoff[i] = now;
+        } else if (now - holdoff[i] > HOLDOFFTIME) {
+          prevCount[i] = count;
+          holdoff[i] = 0;
         }
       }
-      digitalWrite(pinosRows[r], HIGH);
     }
 
-    // Leitura dos encoders como botões
-    long pos1 = encoder1.getCount();
-    long pos2 = encoder2.getCount();
-    if (pos1 != ultimoEncoder1Pos) {
-      if (pos1 > ultimoEncoder1Pos) bleGamepad.press(15);
-      else bleGamepad.press(16);
-      delay(50);
-      bleGamepad.release(15);
-      bleGamepad.release(16);
-      ultimoEncoder1Pos = pos1;
-    }
-    if (pos2 != ultimoEncoder2Pos) {
-      if (pos2 > ultimoEncoder2Pos) bleGamepad.press(17);
-      else bleGamepad.press(18);
-      delay(50);
-      bleGamepad.release(17);
-      bleGamepad.release(18);
-      ultimoEncoder2Pos = pos2;
-    }
+    bleGamepad.sendReport();
+    delay(100);
+  }
+}
 
-    delay(20);
+void keypadEvent(KeypadEvent key) {
+  uint8_t keystate = customKeypad.getState();
+  if (keystate == PRESSED) {
+    bleGamepad.press(key);
+  }
+  if (keystate == RELEASED) {
+    bleGamepad.release(key);
   }
 }
