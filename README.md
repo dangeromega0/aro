@@ -1,4 +1,3 @@
-
 #define BOUNCE_WITH_PROMPT_DETECTION // Ativa a detecção de debounce para evitar múltiplas leituras acidentais
 
 #include <BleGamepad.h> // Biblioteca para emular um gamepad Bluetooth
