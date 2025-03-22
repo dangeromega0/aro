@@ -144,7 +144,7 @@ void keypadEvent(KeypadEvent key) {
 //Botão 10: Porta 25 e 23 
 //Botão 11: Porta 13 e 22 
 //Botão 12: Porta 13 e 23 
-//BOTÃO 13: Porta 4 e 5  
-//BOTÃO 14: Porta 14 e 15 
+//BOTÃO 13: Porta 4 e 5  PADDLE 1
+//BOTÃO 14: Porta 14 e 15 PADDLE 2
 //Encoder 1 modelo ec11: Out A: Porta 18 GND: GND da ESP Out B: Porta 17 
 //Encoder 2 modelo ec11: Out A: Porta 21 GND: GND da ESP Out B: Porta 19
